@@ -1214,6 +1214,64 @@ def delete_object(url, token=None, container=None, name=None, http_conn=None,
                               http_response_content=body)
 
 
+def bulk_delete(url, token, names, container=None, http_conn=None,
+                headers=None, proxy=None, response_dict=None,
+                service_token=None):
+    """
+    Bulk delete objects
+
+    :param url: storage URL
+    :param token: auth token
+    :param names: list of object names to delete
+    :param container: container name that objects are in; if None, the
+                      container name is expected to be part of object names
+    :param http_conn: HTTP connection object (If None, it will create the
+                      conn object)
+    :param headers: additional headers to include in the request
+    :param proxy: proxy to connect through, if any; None by default; str of the
+                  format 'http://127.0.0.1:8888' to set one
+    :param response_dict: an optional dictionary into which to place
+                     the response - status, reason and headers
+    :param service_token: service auth token
+    :raises ClientException: HTTP DELETE request failed
+    """
+
+    if http_conn:
+        parsed, conn = http_conn
+    else:
+        parsed, conn = http_connection(url, proxy=proxy)
+    path = parsed.path
+    if container:
+        container = quote(container)
+        names = map(lambda n: '%s/%s' % (container, n), names)
+    if headers:
+        headers = dict(headers)
+    else:
+        headers = {}
+    if token:
+        headers['X-Auth-Token'] = token
+    if service_token:
+        headers['X-Service-Token'] = service_token
+    headers['Content-Type'] = 'text/plain'
+    headers['Accept'] = 'application/json'
+    path += '?bulk-delete'
+    data = '\r\n'.join(names)
+    conn.request('DELETE', path, data, headers)
+    resp = conn.getresponse()
+    body = resp.read()
+    http_log(('%s%s' % (url.replace(parsed.path, ''), path), 'DELETE',),
+             {'headers': headers}, resp, body)
+
+    store_response(resp, response_dict)
+
+    if resp.status < 200 or resp.status >= 300:
+        raise ClientException('Bulk DELETE failed',
+                              http_scheme=parsed.scheme, http_host=conn.host,
+                              http_path=path, http_status=resp.status,
+                              http_reason=resp.reason,
+                              http_response_content=body)
+
+
 def get_capabilities(http_conn):
     """
     Get cluster capability infos.
@@ -1534,6 +1592,11 @@ class Connection(object):
         """Wrapper for :func:`delete_object`"""
         return self._retry(None, delete_object, container, obj,
                            query_string=query_string,
+                           response_dict=response_dict)
+
+    def bulk_delete(self, names, container=None, response_dict=None):
+        """ Wrapper for :func:`bulk_delete`"""
+        return self._retry(None, bulk_delete, names=names, container=container,
                            response_dict=response_dict)
 
     def get_capabilities(self, url=None):
